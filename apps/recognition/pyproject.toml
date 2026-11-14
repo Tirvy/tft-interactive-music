@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tft-recognition-poc"
+version = "0.1.0"
+description = "Proof-of-concept trait-panel recognition for the TFT soundtrack companion"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.24",
+  "opencv-python-headless>=4.8",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.3",
+]
+ocr = [
+  "paddleocr>=2.8",
+  "paddlepaddle>=2.6",
+]
+
+[project.scripts]
+tft-recognition = "tft_recognition.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+markers = [
+  "ocr: integration tests that require a locally installed OCR engine and models",
+]

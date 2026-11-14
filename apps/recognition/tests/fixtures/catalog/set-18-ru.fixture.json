@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "id": "set-18",
+  "displayName": "TFT Set 18 - Enchanted Wilds (fixture catalog)",
+  "dataVersion": "fixture-1",
+  "locale": "ru-RU",
+  "traits": [
+    {
+      "id": "Adaptor",
+      "displayName": "Адаптация",
+      "aliases": []
+    },
+    {
+      "id": "Attuned",
+      "displayName": "Крепкая связь",
+      "aliases": []
+    },
+    {
+      "id": "OldGrowth",
+      "displayName": "Древний лес",
+      "aliases": []
+    },
+    {
+      "id": "Inferno",
+      "displayName": "Инферно",
+      "aliases": []
+    },
+    {
+      "id": "Defender",
+      "displayName": "Страж",
+      "aliases": []
+    },
+    {
+      "id": "Rapidfire",
+      "displayName": "Заводила",
+      "aliases": []
+    },
+    {
+      "id": "Juggernaut",
+      "displayName": "Джаггернаут",
+      "aliases": []
+    },
+    {
+      "id": "Spellweaver",
+      "displayName": "Заклинатель",
+      "aliases": []
+    },
+    {
+      "id": "FloraFatalis",
+      "displayName": "Коварная флора",
+      "aliases": []
+    },
+    {
+      "id": "Ravager",
+      "displayName": "Опустошитель",
+      "aliases": []
+    },
+    {
+      "id": "Fae",
+      "displayName": "Фея",
+      "aliases": []
+    },
+    {
+      "id": "Elderwood",
+      "displayName": "Дух леса",
+      "aliases": []
+    }
+  ]
+}

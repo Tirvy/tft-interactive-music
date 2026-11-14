@@ -1,0 +1,43 @@
+{
+    "traits": {
+        "Juggernaut": 4,
+        "Executioner": 3,
+        "Blossom": 3,
+        "Flora Fatalis": 1,
+        "Fae": 1,
+        "Primal": 1,
+        "Spellweaver": 1,
+        "Summoner": 1,
+        "Vanguard": 1
+    },
+    "progress": {
+        "stage": 3,
+        "round": 5
+    },
+    "players": [
+        {
+            "health": 96
+        },
+        {
+            "health": 98
+        },
+        {
+            "health": 84
+        },
+        {
+            "health": 77
+        },
+        {
+            "health": 75
+        },
+        {
+            "health": 56
+        },
+        {
+            "health": 53
+        },
+        {
+            "health": 50
+        }
+    ]
+}

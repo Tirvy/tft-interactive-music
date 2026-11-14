@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "image": "screenshot-2.png",
+  "expectedFile": "screenshot-2.json",
+  "setId": "set-18",
+  "locale": "ru-RU",
+  "source": {
+    "width": 2559,
+    "height": 1599
+  },
+  "crop": {
+    "x": 0.0,
+    "y": 0.2,
+    "width": 0.16,
+    "height": 0.5
+  },
+  "catalog": "../../apps/recognition/tests/fixtures/catalog/set-18-ru.fixture.json",
+  "notes": "Measured starting crop. The panel is nearly flush with the left edge in this screenshot."
+}

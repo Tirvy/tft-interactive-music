@@ -51,6 +51,12 @@ clarification if needed.
     acceptance criteria, and testing.
 -   [AI coding guide](AI_CODING_GUIDE.md): instructions and constraints
     for coding assistants.
+-   [Decisions](DECISIONS.md): settled and open choices for the
+    recognition proof of concept.
+-   [OCR benchmark](OCR_BENCHMARK.md): preprocessing and confidence
+    results on the tracked fixtures.
+-   [Recognition POC](../apps/recognition/README.md): setup, usage, and
+    limitations of the Python recognition prototype.
 
 ## Proposed stack
 
