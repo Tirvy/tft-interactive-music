@@ -1,0 +1,9 @@
+node_modules
+out
+dist
+coverage
+pnpm-lock.yaml
+docs
+tests
+apps/recognition
+README.md

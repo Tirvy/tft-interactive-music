@@ -50,6 +50,7 @@ apps/recognition/
     fixture.py        fixture manifest loading
     result.py         versioned result schema and expected comparison
     cli.py            command-line entry point
+    worker.py         stdio JSON-lines worker (lifecycle stub)
   tests/
     unit/             hermetic tests using fake OCR
     integration/      real PaddleOCR tests, marked `ocr`
@@ -141,6 +142,44 @@ name/count fixture does not match, or `--fail-on-error` to exit with code
 | `--fuzzy-min-score`, `--fuzzy-min-margin` | Fuzzy matching policy; defaults `0.85` and `0.08`. |
 | `--debug-dir` | Opt in to writing crop/preprocessed debug images. |
 | `--out`, `--pretty` | Write and format the JSON result. |
+
+## stdio worker
+
+`tft_recognition.worker` is the Milestone 1 lifecycle stub. The Electron
+main process spawns it and speaks newline-delimited JSON over stdio. It
+uses only the Python standard library, imports no OCR dependencies, and
+does not open a port.
+
+Run it directly to inspect the protocol:
+
+```powershell
+cd apps/recognition
+.\.venv\Scripts\python.exe -m tft_recognition.worker --heartbeat-interval 2
+```
+
+Messages are one JSON object per line on stdin and stdout. Worker log
+lines are separate JSON objects on stderr. Every message carries
+`schemaVersion: 1`.
+
+| Direction | Type | Purpose |
+| --- | --- | --- |
+| worker → app | `worker.ready` | Version, startup time, and capability flags. |
+| worker → app | `worker.heartbeat` | Sequence number, send time, and uptime. |
+| app → worker | `worker.ping` | Requests a `worker.pong` with the same `requestId`. |
+| worker → app | `worker.pong` | Control-channel acknowledgement. |
+| app → worker | `worker.shutdown` | Graceful stop request with an optional reason. |
+| worker → app | `worker.stopping` | Acknowledges shutdown before exit. |
+| worker → app | `worker.error` | `invalid_json`, `unsupported_schema_version`, or `unsupported_type`; the worker keeps running. |
+
+The desktop supervisor treats a missed heartbeat or an unexpected exit
+as `disconnected`, and a spawn failure or startup timeout as `error`.
+Capabilities currently report `recognition: false` and `liveCapture:
+false`; OCR arrives in Milestone 2 without changing the lifecycle
+contract.
+
+Lifecycle tests launch the module in a subprocess and assert readiness,
+ping/pong, shutdown, and error recovery:
+`tests/unit/test_worker.py`.
 
 ## Fixtures
 
@@ -263,5 +302,5 @@ expected display-name/count pairs and an `ok` status.
 
 Last verified locally:
 
--   Python 3.14, core environment: `69 passed, 2 skipped`.
--   Python 3.12, PaddleOCR environment: `71 passed`.
+-   Python 3.14, core environment: `81 passed, 2 skipped`.
+-   Python 3.12, PaddleOCR environment: `83 passed`.

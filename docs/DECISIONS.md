@@ -251,3 +251,115 @@ Open, recorded so they are not mistaken for settled:
     is not yet connected to catalog breakpoint metadata or composition.
 -   **Temporal validation.** Deferred to the desktop worker; the POC
     publishes a reading per image with no smoothing.
+
+## 13. Desktop foundation (Milestones 0 and 1)
+
+Decided:
+
+-   **Build tooling.** `electron-vite` builds the main, preload, and
+    renderer bundles. Vue 3 with `<script setup>`, TypeScript, and Pinia.
+    Navigation is a small store-driven view switch, not a router; the app
+    has four fixed screens and no deep-linking requirement yet.
+-   **Workspace shape.** A pnpm workspace with `apps/desktop`,
+    `apps/recognition`, and `packages/shared-types`. Only contracts are
+    shared with TypeScript today; no UI or recognition logic is duplicated
+    across packages.
+-   **Contracts.** Zod schemas in `packages/shared-types` are the source
+    of truth for IPC payloads, the worker protocol, capture requests and
+    results, settings, and recognition results. Types are inferred from
+    schemas so runtime validation and compile-time types cannot drift.
+-   **Worker transport.** Newline-delimited JSON over stdio. No local
+    port, no HTTP, no WebSocket. The desktop process owns the child, so
+    there is no listener to secure and no port to collide with.
+-   **Worker lifecycle.** The main process starts, stops, and restarts
+    the worker, tracks
+    `stopped → starting → running → stopping → stopped`, and exposes
+    `error` (spawn failure or startup timeout) and `disconnected`
+    (unexpected exit or missed heartbeat). The UI shows the same state
+    machine and a visible disconnect.
+-   **Heartbeats.** The worker emits periodic heartbeats; the supervisor
+    also sends pings and records `lastHeartbeatAt` and `lastPongAt`. A
+    timeout beyond `heartbeatTimeoutMs` marks the worker disconnected and
+    terminates it. Timeout must exceed the interval.
+-   **Settings.** Validated JSON in the Electron `userData` directory,
+    not SQLite. Missing fields are merged with defaults; a corrupt file
+    is backed up and replaced with defaults and the problem is logged.
+    A database is deferred until settings or composition history outgrow
+    a single document.
+-   **Capture.** `desktopCapturer` in the main process, `getDisplayMedia`
+    in the renderer via the preload bridge, canvas PNG encoding in the
+    renderer, and validated file writes in the main process. Permission
+    for `display-capture` is granted only to the trusted main window.
+-   **Capture source selection.** The main process resolves the selected
+    source itself when answering `setDisplayMediaRequestHandler`; the
+    renderer never supplies a source object back to the main process.
+-   **Display metadata.** Screen sources are joined to
+    `screen.getAllDisplays()` to expose scale factor and derived physical
+    size. Windows can report an empty `display_id`, so the join falls back
+    to the source id and then the source index. Details and limits are in
+    `docs/CAPTURE_SPIKE.md`.
+-   **Library boundaries.** Vue components render state and call Pinia
+    stores. Stores orchestrate IPC. Recognition, capture geometry, and
+    future rule/audio logic stay in packages, not in `.vue` files.
+-   **Naming and data location.** The app name is
+    `TFT Soundtrack Companion`; `userData` is
+    `%APPDATA%\TFT Soundtrack Companion`.
+-   **Python environment discovery.** An explicit `pythonPath` from
+    settings wins; otherwise the app probes
+    `apps/recognition/.venv312`, then `.venv`, then `python` on `PATH`.
+    The real OCR environment is 3.12 because PaddlePaddle 3.3 has no
+    wheel for 3.14.
+-   **Worker stub.** The Milestone 1 worker is a standard-library-only
+    stdio server. It announces `worker.ready`, heartbeats, answers
+    `worker.ping`, reports protocol errors without exiting, and shuts down
+    on `worker.shutdown`. It imports no OCR dependency so startup stays
+    fast and testable.
+-   **Verification modes.** `smoke` launches the built app, confirms the
+    renderer mounted, and cycles the worker. `smoke:capture` runs the
+    real capture path and saves a PNG. Both are non-interactive
+    diagnostics, not substitutes for the manual checklist.
+
+Reason: this slice had to prove process boundaries and failure
+visibility before recognition or audio exists. stdio and a supervised
+child keep that boundary explicit and testable, and keeping writes in the
+main process means the renderer never gains filesystem authority.
+
+Consequence: the renderer is trusted for capture but not for file paths
+or source selection. Worker messages are versioned (`schemaVersion: 1`)
+and validated with Zod on both sides, so adding OCR messages is an
+additive change or an explicit version bump.
+
+## 14. Open questions after the foundation slice
+
+Open, recorded so they are not mistaken for settled:
+
+-   **Packaging.** No installer or code signing yet. Decide the electron
+    builder configuration, auto-update policy, and whether the Python
+    runtime ships with the app or is resolved from a user-managed
+    environment.
+-   **Python distribution.** Requiring users to create a venv is fine for
+    development. Shipping OCR needs a bundled runtime or a guided setup,
+    and PaddleOCR model size affects installer size.
+-   **Capture ownership.** Capture currently runs through the renderer.
+    If recognition needs higher or steadier frame rates, decide whether
+    frames move directly into the worker, whether the worker captures, or
+    whether the main process keeps a frame buffer.
+-   **Frame transport.** PNG over IPC is fine for a spike. Continuous
+    recognition likely needs a shared buffer, a compressed format, or
+    sampling policy; measure before choosing.
+-   **Multi-monitor and mixed DPI.** The display join and the physical
+    size derivation need verification on multi-monitor and mixed-scale
+    setups.
+-   **Settings migration.** The settings document has a schema but no
+    migration history. Define how old documents upgrade once fields
+    become load-bearing.
+-   **Worker protocol growth.** `schemaVersion: 1` covers lifecycle only.
+    Adding capture, calibration, and recognition messages may need
+    capability negotiation rather than a version bump per feature.
+-   **Audio host.** Web Audio in the renderer is the plan, but the
+    process that owns the persistent timeline and the rule engine is not
+    settled. Keep both out of components regardless.
+-   **Log retention.** The desktop log is append-only NDJSON in
+    `logs\main.log` that rolls over once at 5 MB to `main.log.1`. Decide
+    whether one backup and a size cap are enough for long sessions or
+    whether time-based retention is needed.

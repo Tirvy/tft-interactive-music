@@ -23,6 +23,7 @@ ocr = [
 
 [project.scripts]
 tft-recognition = "tft_recognition.cli:main"
+tft-recognition-worker = "tft_recognition.worker:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

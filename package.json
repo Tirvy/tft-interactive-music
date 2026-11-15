@@ -1,0 +1,30 @@
+{
+  "name": "tft-interactive-music",
+  "version": "0.1.0",
+  "private": true,
+  "description": "TFT soundtrack companion workspace",
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @tft/desktop dev",
+    "build": "pnpm -r build",
+    "preview": "pnpm --filter @tft/desktop preview",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "test:recognition": "cd apps/recognition && python -m pytest -q",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.15.0",
+    "eslint-plugin-vue": "^10.12.1",
+    "prettier": "^3.10.1",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.72.2",
+    "vue-eslint-parser": "^10.3.0"
+  }
+}

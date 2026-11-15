@@ -1,0 +1,26 @@
+node_modules/
+out/
+dist/
+release/
+coverage/
+.vite/
+*.tsbuildinfo
+*.log
+
+.DS_Store
+Thumbs.db
+
+# Python recognition environment and caches
+apps/recognition/.venv*/
+apps/recognition/**/__pycache__/
+apps/recognition/.pytest_cache/
+apps/recognition/**/*.egg-info/
+apps/recognition/build/
+apps/recognition/dist/
+apps/recognition/artifacts/
+apps/recognition/models/
+
+# Local capture and test output
+artifacts/
+captures/
+*.local.json

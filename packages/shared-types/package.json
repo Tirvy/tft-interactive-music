@@ -1,0 +1,26 @@
+{
+  "name": "@tft/shared-types",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./capture": "./src/capture.ts",
+    "./ipc": "./src/ipc.ts",
+    "./protocol": "./src/protocol.ts",
+    "./recognition": "./src/recognition.ts",
+    "./settings": "./src/settings.ts",
+    "./worker": "./src/worker.ts"
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "vitest": "^5.1.0"
+  }
+}
