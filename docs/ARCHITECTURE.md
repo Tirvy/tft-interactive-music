@@ -85,8 +85,10 @@ Capture the selected TFT window or display. The initial implementation
 may use Electron's desktop capture facilities and pass frames to the
 Python worker. Avoid capturing more frequently than needed.
 
-Suggested initial target: 2--4 frames per second. Treat this as a
-tunable starting point, not a hard requirement.
+Recognition cadence is a tunable starting point, not a hard requirement.
+The current target is about 1 frame per second while debugging and one
+frame every 2--3 seconds in production. Music does not need to react
+instantly. See `DECISIONS.md` section 15.3.
 
 ### 4.2 Panel calibration
 
@@ -211,8 +213,9 @@ Do not treat the example timestamp or counts as real game data.
 The recognizer may produce transient errors. A temporal filter should
 publish a stable composition only after configurable validation.
 
-Initial behavior: - Require the same normalized trait/count state in
-2--3 consecutive usable captures before applying it. - Use a short
+Initial behavior: - Require the same normalized trait/count state across
+a configurable validation window, measured in elapsed time rather than a
+fixed frame count because cadence may be below 1 fps. - Use a short
 debounce window to avoid reacting to animation or intermediate UI
 states. - Preserve the last-known-good composition during brief capture
 failures. - Expose stale status and last successful capture time to the
@@ -515,6 +518,14 @@ Handle worker disconnect and restart. - Do not expose the local worker
 port to the network. - Bind local WebSocket to loopback only, or prefer
 Electron IPC if it meets the capture/worker design. - Never execute
 commands or paths received from untrusted messages.
+
+Current implementation (Milestone 2a) uses stdio instead of a local port.
+The desktop sends `worker.ping`, `worker.shutdown`, and
+`recognition.analyze`; the worker sends `worker.ready`,
+`worker.heartbeat`, `worker.pong`, `worker.stopping`,
+`recognition.result`, and `worker.error`. Capture messages and
+configuration messages are not implemented yet. See
+`apps/recognition/README.md` for the message fields.
 
 ## 11. Suggested repository structure
 

@@ -60,8 +60,8 @@ suite('WorkerSupervisor lifecycle', () => {
     const running = await waitFor(supervisor, (status) => status.state === 'running', 15_000)
 
     expect(running.pid).toBeGreaterThan(0)
-    expect(running.workerVersion).toBe('0.1.0')
-    expect(running.mode).toBe('stub')
+    expect(running.workerVersion).toBe('0.2.0')
+    expect(['stub', 'ocr']).toContain(running.mode)
     expect(running.lastError).toBeNull()
 
     await supervisor.restart()

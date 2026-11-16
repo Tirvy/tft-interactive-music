@@ -1,6 +1,7 @@
 import { computed, ref, shallowRef } from 'vue'
 import { defineStore } from 'pinia'
-import type { CaptureSource, SavedCapture } from '@tft/shared-types/capture'
+import type { CaptureSource, NormalizedRect, SavedCapture } from '@tft/shared-types/capture'
+import type { RecognitionResultMessage } from '@tft/shared-types/protocol'
 import { DisplayCaptureSession, type CaptureSessionStats } from '../services/capture-session'
 import { errorMessage } from '../utils/errors'
 import { useSettingsStore } from './settings'
@@ -23,6 +24,30 @@ export const useCaptureStore = defineStore('capture', () => {
   const stats = ref<CaptureStats | null>(null)
   const lastCapture = ref<SavedCapture | null>(null)
   const error = ref<string | null>(null)
+
+  /**
+   * The trait panel occupies the upper-left portion of the TFT window. This
+   * default comes from the Set 18 reference screenshot and stays editable
+   * until crop calibration is automated.
+   */
+  const crop = ref<NormalizedRect>({ x: 0, y: 0.2, width: 0.16, height: 0.5 })
+  const analyzing = ref(false)
+  const lastRecognition = ref<RecognitionResultMessage | null>(null)
+  const recognitionError = ref<string | null>(null)
+
+  const cropValid = computed(() => {
+    const rect = crop.value
+    const values = [rect.x, rect.y, rect.width, rect.height]
+    return (
+      values.every((value) => Number.isFinite(value)) &&
+      rect.x >= 0 &&
+      rect.y >= 0 &&
+      rect.width > 0 &&
+      rect.height > 0 &&
+      rect.x + rect.width <= 1 &&
+      rect.y + rect.height <= 1
+    )
+  })
 
   const selectedSource = computed(
     () => sources.value.find((source) => source.id === selectedId.value) ?? null,
@@ -151,6 +176,8 @@ export const useCaptureStore = defineStore('capture', () => {
       })
 
       lastCapture.value = saved
+      lastRecognition.value = null
+      recognitionError.value = null
       return saved
     } catch (cause) {
       error.value = errorMessage(cause)
@@ -197,6 +224,39 @@ export const useCaptureStore = defineStore('capture', () => {
     }
   }
 
+  async function analyzeLastCapture(): Promise<RecognitionResultMessage | null> {
+    const capture = lastCapture.value
+    if (!capture) {
+      recognitionError.value = 'Capture and save a frame before running recognition.'
+      return null
+    }
+
+    if (!cropValid.value) {
+      recognitionError.value = 'The crop must be inside the frame and larger than zero.'
+      return null
+    }
+
+    analyzing.value = true
+    recognitionError.value = null
+
+    try {
+      const result = await window.tft.recognition.analyze({
+        filePath: capture.filePath,
+        captureTimestamp: capture.capturedAt,
+        crop: { ...crop.value },
+        setId: 'set-18',
+      })
+
+      lastRecognition.value = result
+      return result
+    } catch (cause) {
+      recognitionError.value = errorMessage(cause)
+      return null
+    } finally {
+      analyzing.value = false
+    }
+  }
+
   function dispose(): void {
     stopPreview()
   }
@@ -213,6 +273,11 @@ export const useCaptureStore = defineStore('capture', () => {
     stats,
     lastCapture,
     error,
+    crop,
+    cropValid,
+    analyzing,
+    lastRecognition,
+    recognitionError,
     loadSources,
     selectSource,
     startPreview,
@@ -220,6 +285,7 @@ export const useCaptureStore = defineStore('capture', () => {
     captureFrom,
     measureFrameRate,
     revealLastCapture,
+    analyzeLastCapture,
     dispose,
   }
 })

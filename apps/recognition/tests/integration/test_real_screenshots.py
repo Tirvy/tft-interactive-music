@@ -15,7 +15,7 @@ SCREENSHOT_ROOT = Path(__file__).resolve().parents[4] / "tests" / "ru"
 
 
 @pytest.mark.ocr
-@pytest.mark.parametrize("name", ["screenshot-1", "screenshot-2"])
+@pytest.mark.parametrize("name", ["screenshot-1", "screenshot-2", "screenshot-3"])
 def test_real_screenshot_matches_expected(name: str) -> None:
     pytest.importorskip("paddleocr")
     manifest = load_fixture(SCREENSHOT_ROOT / f"{name}.fixture.json")

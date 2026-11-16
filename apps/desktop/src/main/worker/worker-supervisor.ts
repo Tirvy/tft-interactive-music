@@ -3,7 +3,13 @@ import { randomUUID } from 'node:crypto'
 import { delimiter, join } from 'node:path'
 import { createInterface, type Interface } from 'node:readline'
 import type { AppSettings } from '@tft/shared-types/settings'
-import { WORKER_PROTOCOL_VERSION, workerMessageSchema } from '@tft/shared-types/protocol'
+import {
+  WORKER_PROTOCOL_VERSION,
+  workerMessageSchema,
+  type DesktopToWorkerMessage,
+  type RecognitionAnalyzeMessage,
+  type RecognitionResultMessage,
+} from '@tft/shared-types/protocol'
 import { createInitialWorkerStatus, type WorkerStatus } from '@tft/shared-types/worker'
 import { errorMessage } from '../errors'
 import type { Logger } from '../logger'
@@ -17,8 +23,24 @@ export interface WorkerSupervisorOptions {
   onStatus?: (status: WorkerStatus) => void
 }
 
+/** Everything the main process supplies; the supervisor adds the request id. */
+export type AnalyzeRequest = Omit<RecognitionAnalyzeMessage, 'type' | 'schemaVersion' | 'requestId'>
+
+interface PendingAnalysis {
+  resolve: (result: RecognitionResultMessage) => void
+  reject: (error: Error) => void
+  timer: NodeJS.Timeout
+}
+
 const SHUTDOWN_GRACE_MS = 3000
 const FORCE_KILL_GRACE_MS = 1000
+/**
+ * Covers the first PaddleOCR model load plus slow CPU-only inference. Measured
+ * at ~73 s for a 1912x1205 capture and ~128 s for a 2560x1600 capture on the
+ * reference machine with MKLDNN disabled, so 300 s leaves room for slower
+ * hardware and model setup. Subsequent analyses reuse the cached engine.
+ */
+const ANALYZE_TIMEOUT_MS = 300_000
 
 /**
  * Owns the Python worker child process and its stdio JSON-lines protocol.
@@ -38,6 +60,7 @@ export class WorkerSupervisor {
   private healthTimer: NodeJS.Timeout | null = null
   private stopRequested = false
   private disposed = false
+  private readonly pendingAnalyses = new Map<string, PendingAnalysis>()
   private startPromise: Promise<WorkerStatus> | null = null
   private exitPromise: Promise<void> | null = null
   private resolveExit: (() => void) | null = null
@@ -124,8 +147,102 @@ export class WorkerSupervisor {
     return this.start()
   }
 
+  /**
+   * Start the worker if needed and wait until it reports ready.
+   *
+   * The app can boot with auto-start enabled while the renderer is already
+   * interactive, so the first analyze request must wait out the startup
+   * handshake instead of failing with "worker is not running".
+   */
+  async ensureRunning(): Promise<void> {
+    if (this.status.state === 'running' && this.child) {
+      return
+    }
+
+    if (!this.isActive()) {
+      await this.start()
+    }
+
+    const timeoutMs = this.options.getSettings().worker.startupTimeoutMs + 1000
+    const deadline = Date.now() + timeoutMs
+
+    while (Date.now() < deadline) {
+      if (this.status.state === 'running' && this.child) {
+        return
+      }
+
+      if (
+        this.status.state === 'error' ||
+        this.status.state === 'disconnected' ||
+        this.status.state === 'stopped'
+      ) {
+        throw new Error(
+          this.status.lastError?.message ?? `The recognition worker is ${this.status.state}.`,
+        )
+      }
+
+      await delay(50)
+    }
+
+    throw new Error('Timed out waiting for the recognition worker to become ready.')
+  }
+
+  /**
+   * Run one recognition request and resolve with its correlated result.
+   *
+   * The worker processes analyses serially, so a second request is rejected
+   * rather than queued. Every pending request is rejected when the child
+   * exits, the supervisor is disposed, or the timeout elapses.
+   */
+  async analyze(request: AnalyzeRequest): Promise<RecognitionResultMessage> {
+    if (this.status.state !== 'running' || !this.child) {
+      throw new Error('The recognition worker is not running.')
+    }
+
+    if (this.pendingAnalyses.size > 0) {
+      throw new Error('A recognition request is already in progress.')
+    }
+
+    const requestId = randomUUID()
+    const result = new Promise<RecognitionResultMessage>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (!this.pendingAnalyses.delete(requestId)) {
+          return
+        }
+        this.options.logger.error('worker.analyze-timeout', { requestId })
+        reject(new Error(`Recognition timed out after ${ANALYZE_TIMEOUT_MS / 1000} s.`))
+        // A stuck OCR call owns the worker's stdin loop, so recycle the child
+        // rather than leaving every future request queued behind it.
+        this.killChild()
+      }, ANALYZE_TIMEOUT_MS)
+      timer.unref()
+
+      this.pendingAnalyses.set(requestId, { resolve, reject, timer })
+    })
+
+    const sent = this.send({
+      type: 'recognition.analyze',
+      schemaVersion: WORKER_PROTOCOL_VERSION,
+      requestId,
+      ...request,
+    })
+
+    if (!sent) {
+      this.rejectPending('The worker connection closed before the request was sent.', requestId)
+    }
+
+    this.options.logger.info('worker.analyze-requested', {
+      requestId,
+      imagePath: request.imagePath,
+      setId: request.setId ?? null,
+    })
+
+    return result
+  }
+
   dispose(): void {
     this.disposed = true
+    this.rejectAllPending('The worker supervisor was disposed.')
     this.clearTimers()
     this.closeReaders()
 
@@ -300,12 +417,48 @@ export class WorkerSupervisor {
         break
       }
 
+      case 'recognition.result': {
+        const pending = this.pendingAnalyses.get(message.requestId)
+        if (!pending) {
+          this.options.logger.warn('worker.unmatched-result', {
+            requestId: message.requestId,
+          })
+          break
+        }
+
+        clearTimeout(pending.timer)
+        this.pendingAnalyses.delete(message.requestId)
+        // The response itself proves liveness; refresh the heartbeat clock so
+        // the health timer does not immediately trip on the stale timestamp
+        // from before the OCR call.
+        this.setStatus({ lastHeartbeatAt: new Date().toISOString() })
+        this.options.logger.info('worker.analysis-complete', {
+          requestId: message.requestId,
+          status: message.status,
+          traitCount: message.traits.length,
+          unknownCount: message.unknownRows.length,
+        })
+        pending.resolve(message)
+        break
+      }
+
       case 'worker.error': {
         this.options.logger.error('worker.reported-error', {
           code: message.code,
           message: message.message,
           detail: message.detail,
+          requestId: message.requestId,
         })
+
+        // Correlated errors belong to a specific request; surface them to the
+        // caller instead of turning them into global worker status errors.
+        if (message.requestId) {
+          const error = new Error(`${message.code}: ${message.message}`)
+          this.rejectPending(error.message, message.requestId, error)
+          this.setStatus({ lastHeartbeatAt: new Date().toISOString() })
+          break
+        }
+
         this.setStatus({
           lastError: {
             code: message.code,
@@ -329,6 +482,7 @@ export class WorkerSupervisor {
     this.resolveExit = null
     this.exitPromise = null
     this.stopRequested = false
+    this.rejectAllPending('The worker exited before the recognition request completed.')
 
     if (this.disposed) {
       return
@@ -369,6 +523,13 @@ export class WorkerSupervisor {
         return
       }
 
+      // PaddleOCR can hold the GIL through model load and inference, which
+      // starves the worker's heartbeat thread. While a request is in flight,
+      // the per-request analyze timeout is the liveness backstop.
+      if (this.pendingAnalyses.size > 0) {
+        return
+      }
+
       const reference = this.status.lastHeartbeatAt ?? this.status.readyAt
       const referenceTime = reference ? Date.parse(reference) : Number.NaN
       const age = Number.isFinite(referenceTime) ? Date.now() - referenceTime : 0
@@ -396,19 +557,40 @@ export class WorkerSupervisor {
     }, settings.worker.heartbeatIntervalMs)
   }
 
-  private send(message: {
-    type: 'worker.ping' | 'worker.shutdown'
-    schemaVersion: number
-    [key: string]: unknown
-  }): void {
+  private send(message: DesktopToWorkerMessage): boolean {
     if (!this.child || this.child.stdin.destroyed) {
-      return
+      return false
     }
 
     try {
       this.child.stdin.write(`${JSON.stringify(message)}\n`)
+      return true
     } catch (error) {
       this.options.logger.warn('worker.write-failed', { message: errorMessage(error) })
+      return false
+    }
+  }
+
+  private rejectPending(
+    message: string,
+    requestId: string,
+    error: Error = new Error(message),
+  ): void {
+    const pending = this.pendingAnalyses.get(requestId)
+    if (!pending) {
+      return
+    }
+
+    clearTimeout(pending.timer)
+    this.pendingAnalyses.delete(requestId)
+    pending.reject(error)
+  }
+
+  private rejectAllPending(message: string): void {
+    for (const [requestId, pending] of this.pendingAnalyses) {
+      clearTimeout(pending.timer)
+      pending.reject(new Error(message))
+      this.pendingAnalyses.delete(requestId)
     }
   }
 
@@ -440,6 +622,7 @@ export class WorkerSupervisor {
     this.resolveExit?.()
     this.resolveExit = null
     this.exitPromise = null
+    this.rejectAllPending('The worker connection was cleaned up before the response arrived.')
   }
 
   private forceCleanup(): void {

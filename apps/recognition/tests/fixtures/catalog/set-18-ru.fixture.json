@@ -64,6 +64,16 @@
       "id": "Elderwood",
       "displayName": "Дух леса",
       "aliases": []
+    },
+    {
+      "id": "Hunter",
+      "displayName": "Охотник",
+      "aliases": []
+    },
+    {
+      "id": "Executioner",
+      "displayName": "Палач",
+      "aliases": []
     }
   ]
 }

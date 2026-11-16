@@ -1,16 +1,20 @@
-import { resolve } from 'node:path'
+import { randomUUID } from 'node:crypto'
+import { copyFileSync, mkdirSync, unlinkSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import { app, BrowserWindow, session } from 'electron'
 import { IPC_CHANNELS } from '@tft/shared-types/ipc'
 import { errorMessage } from './errors'
 import { Logger } from './logger'
 import { findRecognitionDir } from './paths'
 import { SettingsStore } from './settings-store'
+import { resolveCaptureDirectory } from './capture/capture-paths'
 import { CaptureService } from './capture/capture-service'
 import { registerIpcHandlers } from './ipc'
 import { WorkerSupervisor } from './worker/worker-supervisor'
 
 const smokeTest = process.argv.includes('--smoke-test')
 const captureSmokeTest = process.argv.includes('--capture-smoke-test')
+const recognitionSmokeTest = process.argv.includes('--recognition-smoke-test')
 
 app.setName('TFT Soundtrack Companion')
 
@@ -119,7 +123,7 @@ async function bootstrap(): Promise<void> {
     logger: appLogger,
     userDataPath,
     recognitionDir,
-    smokeTest: smokeTest || captureSmokeTest,
+    smokeTest: smokeTest || captureSmokeTest || recognitionSmokeTest,
   })
 
   createWindow()
@@ -135,6 +139,11 @@ async function bootstrap(): Promise<void> {
     runSmokeTest()
   } else if (captureSmokeTest) {
     runCaptureSmokeTest()
+  } else if (recognitionSmokeTest) {
+    runRecognitionSmokeTest(
+      recognitionDir,
+      resolveCaptureDirectory(settingsStore.get().capture.saveDirectory, userDataPath),
+    )
   }
 }
 
@@ -252,6 +261,79 @@ function runCaptureSmokeTest(): void {
       } catch (error) {
         clearTimeout(timeout)
         console.error(`CAPTURE_SMOKE_FAIL: ${errorMessage(error)}`)
+        await finishSmokeTest(1)
+      }
+    })()
+  })
+}
+
+/**
+ * Diagnostic mode: save a known TFT screenshot through the same capture-path
+ * rules, then run the real recognition chain (preload -> IPC -> supervisor ->
+ * Python worker). The temporary capture is deleted afterwards.
+ */
+function runRecognitionSmokeTest(recognitionDir: string | null, captureDirectory: string): void {
+  const window = mainWindow
+  if (!window) {
+    console.error('RECOGNITION_SMOKE_FAIL: main window was not created')
+    app.exit(1)
+    return
+  }
+
+  if (!recognitionDir) {
+    console.error('RECOGNITION_SMOKE_FAIL: recognition directory was not found')
+    app.exit(1)
+    return
+  }
+
+  const fixturePath = join(recognitionDir, '..', '..', 'tests', 'ru', 'screenshot-1.png')
+  const imagePath = join(captureDirectory, `tft-capture-recognition-smoke-${randomUUID()}.png`)
+
+  const removeImage = (): void => {
+    try {
+      unlinkSync(imagePath)
+    } catch {
+      // The smoke run may fail before the copy exists.
+    }
+  }
+
+  const timeout = setTimeout(() => {
+    removeImage()
+    console.error('RECOGNITION_SMOKE_FAIL: timed out waiting for the worker')
+    app.exit(1)
+  }, 420_000)
+
+  window.webContents.once('did-finish-load', () => {
+    void (async () => {
+      try {
+        mkdirSync(captureDirectory, { recursive: true })
+        copyFileSync(fixturePath, imagePath)
+        await delay(500)
+
+        const request = {
+          filePath: imagePath,
+          captureTimestamp: new Date().toISOString(),
+          crop: { x: 0, y: 0.2, width: 0.16, height: 0.5 },
+          setId: 'set-18',
+        }
+        const result: unknown = await window.webContents.executeJavaScript(
+          `window.tft.recognition.analyze(${JSON.stringify(request)})`,
+          true,
+        )
+
+        const response = result as { type?: string; status?: string; traits?: unknown }
+        if (response.type !== 'recognition.result' || !Array.isArray(response.traits)) {
+          throw new Error('The renderer did not receive a recognition result.')
+        }
+
+        removeImage()
+        clearTimeout(timeout)
+        console.log(JSON.stringify({ event: 'recognition-smoke-test', ok: true, result }))
+        await finishSmokeTest(0)
+      } catch (error) {
+        removeImage()
+        clearTimeout(timeout)
+        console.error(`RECOGNITION_SMOKE_FAIL: ${errorMessage(error)}`)
         await finishSmokeTest(1)
       }
     })()

@@ -10,6 +10,7 @@
     "preview": "electron-vite preview",
     "smoke": "electron-vite build && electron . --smoke-test",
     "smoke:capture": "electron-vite build && electron . --capture-smoke-test",
+    "smoke:recognition": "electron-vite build && electron . --recognition-smoke-test",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "vue-tsc --noEmit -p tsconfig.web.json",

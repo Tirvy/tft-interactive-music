@@ -12,7 +12,7 @@ SCREENSHOT_ROOT = Path(__file__).resolve().parents[4] / "tests" / "ru"
 
 
 def test_fixture_manifests_match_images_and_catalogs() -> None:
-    for name in ("screenshot-1", "screenshot-2"):
+    for name in ("screenshot-1", "screenshot-2", "screenshot-3"):
         manifest = load_fixture(SCREENSHOT_ROOT / f"{name}.fixture.json")
         image = load_image(manifest.image)
         height, width = image.shape[:2]
@@ -39,7 +39,7 @@ def test_fixture_manifests_match_images_and_catalogs() -> None:
 
 
 def test_fixture_crops_are_large_enough_for_ocr() -> None:
-    for name in ("screenshot-1", "screenshot-2"):
+    for name in ("screenshot-1", "screenshot-2", "screenshot-3"):
         manifest = load_fixture(SCREENSHOT_ROOT / f"{name}.fixture.json")
         pixels = manifest.crop.to_pixels(manifest.source_width, manifest.source_height)
         assert pixels.width >= 100

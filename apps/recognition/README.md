@@ -20,7 +20,7 @@ data and diagnostic output?
 -   Emits a versioned JSON result with traits, unknown rows, confidence,
     and diagnostics.
 -   Keeps every OCR line either assigned to a row or recorded as ignored.
--   Provides fixture-based unit tests and two real-screenshot integration
+-   Provides fixture-based unit tests and three real-screenshot integration
     tests.
 
 ## What it does not do
@@ -50,7 +50,7 @@ apps/recognition/
     fixture.py        fixture manifest loading
     result.py         versioned result schema and expected comparison
     cli.py            command-line entry point
-    worker.py         stdio JSON-lines worker (lifecycle stub)
+    worker.py         stdio JSON-lines lifecycle and recognition worker
   tests/
     unit/             hermetic tests using fake OCR
     integration/      real PaddleOCR tests, marked `ocr`
@@ -71,7 +71,7 @@ py -3.14 -m venv .venv
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-Expected result: all unit tests pass; the two real-OCR tests are
+Expected result: all unit tests pass; the three real-OCR tests are
 skipped because PaddleOCR is not installed.
 
 ### Real OCR
@@ -145,17 +145,21 @@ name/count fixture does not match, or `--fail-on-error` to exit with code
 
 ## stdio worker
 
-`tft_recognition.worker` is the Milestone 1 lifecycle stub. The Electron
-main process spawns it and speaks newline-delimited JSON over stdio. It
-uses only the Python standard library, imports no OCR dependencies, and
-does not open a port.
+`tft_recognition.worker` is the stdio worker used by the desktop app. The
+Electron main process spawns it and speaks newline-delimited JSON over
+stdio. It opens no port. Recognition imports (NumPy, OpenCV, PaddleOCR)
+are loaded lazily, so the worker starts quickly and still announces
+lifecycle capabilities without the OCR extra installed.
 
 Run it directly to inspect the protocol:
 
 ```powershell
 cd apps/recognition
-.\.venv\Scripts\python.exe -m tft_recognition.worker --heartbeat-interval 2
+.\.venv312\Scripts\python.exe -m tft_recognition.worker --heartbeat-interval 2
 ```
+
+Use `--ocr fake --ocr-lines tests\fixtures\ocr\demo-lines.json` for
+deterministic analysis without PaddleOCR.
 
 Messages are one JSON object per line on stdin and stdout. Worker log
 lines are separate JSON objects on stderr. Every message carries
@@ -169,23 +173,53 @@ lines are separate JSON objects on stderr. Every message carries
 | worker → app | `worker.pong` | Control-channel acknowledgement. |
 | app → worker | `worker.shutdown` | Graceful stop request with an optional reason. |
 | worker → app | `worker.stopping` | Acknowledges shutdown before exit. |
-| worker → app | `worker.error` | `invalid_json`, `unsupported_schema_version`, or `unsupported_type`; the worker keeps running. |
+| app → worker | `recognition.analyze` | Analyzes one image with a normalized crop and catalog. |
+| worker → app | `recognition.result` | Correlated recognition result with `requestId`. |
+| worker → app | `worker.error` | Protocol or analysis error; includes `requestId` when correlated. |
 
-The desktop supervisor treats a missed heartbeat or an unexpected exit
-as `disconnected`, and a spawn failure or startup timeout as `error`.
-Capabilities currently report `recognition: false` and `liveCapture:
-false`; OCR arrives in Milestone 2 without changing the lifecycle
-contract.
+An analyze request carries `requestId`, `imagePath`, `captureTimestamp`,
+`crop`, `catalogPath`, and optional `setId`, `preprocessMode`,
+`minConfidence`, and `minOcrConfidence`. The response is the same
+versioned result the CLI emits plus `requestId`. The request
+`captureTimestamp` is authoritative; `recognize_path` would otherwise use
+the file mtime.
 
-Lifecycle tests launch the module in a subprocess and assert readiness,
-ping/pong, shutdown, and error recovery:
+Analysis behavior:
+
+-   One request runs at a time. A second concurrent request is rejected
+    with `analysis_busy`; the worker stays alive.
+-   Analysis runs on the stdin read loop. Importing NumPy from a helper
+    thread while the main thread is blocked on stdin deadlocks on Windows,
+    so the pipeline and OCR stay on the main thread.
+-   Heartbeats run on their own thread, but PaddleOCR can hold the GIL
+    through model load and inference and starve that thread. The desktop
+    supervisor therefore ignores heartbeat age while a request is in
+    flight and treats the per-request timeout as the liveness backstop.
+-   The supervisor allows 300 s per request. Cold PaddleOCR inference
+    measured about 73 s for the 1912x1205 fixture and about 128 s for the
+    2560x1600 fixture with MKLDNN disabled. The first run also downloads
+    models into the PaddleX cache.
+-   `analysis_failed` reports the exception and a truncated traceback, and
+    the worker keeps serving later requests.
+
+The desktop supervisor treats a missed heartbeat outside an analysis or
+an unexpected exit as `disconnected`, and a spawn failure or startup
+timeout as `error`. Capabilities report `recognition: true` and
+`ocrEngine: "paddleocr"` (or `"fake"`) when the required modules are
+present; otherwise the worker reports stub capabilities.
+
+Lifecycle and analysis tests launch the module in a subprocess and assert
+readiness, ping/pong, shutdown, correlated results, invalid requests,
+missing images, and liveness after errors:
 `tests/unit/test_worker.py`.
 
 ## Fixtures
 
-The two screenshots under `tests/ru/` are Russian TFT Set 18 panels.
-Their sidecar manifests were added next to the existing expected JSON so
-the original `screenshot-N.json` files stay untouched:
+The three screenshots under `tests/ru/` are Russian TFT Set 18 panels.
+The third is a full-size 2560x1600 capture; the other two are
+1912x1205 and 2559x1599. Their sidecar manifests were added next to the
+existing expected JSON so the original `screenshot-N.json` files stay
+untouched:
 
 ```text
 tests/ru/screenshot-1.png
@@ -260,9 +294,10 @@ pipeline maps boxes back to original crop coordinates before parsing.
 This keeps row diagnostics consistent across modes.
 
 The default mode, `upscale3x_adaptive`, triples the crop and applies a
-Gaussian adaptive threshold. It was selected on the two tracked fixtures
-because it detected the thin `1` count glyphs that raw OCR missed. Other
-modes remain available for benchmarking and future panels. See
+Gaussian adaptive threshold. It was selected on the first two tracked
+fixtures because it detected the thin `1` count glyphs that raw OCR
+missed. The third (full-size) fixture also passes with it. Other modes
+remain available for benchmarking and future panels. See
 `docs/OCR_BENCHMARK.md`.
 
 ## PaddleOCR notes
@@ -280,7 +315,7 @@ modes remain available for benchmarking and future panels. See
 
 ## Known limitations
 
--   Only two Russian Set 18 screenshots are covered.
+-   Only three Russian Set 18 screenshots are covered.
 -   The Set 18 catalog is fixture data, not an authoritative data pack.
 -   Adaptive thresholding is tuned for these dark, translucent panels.
     Another UI scale, font, or background may need a different mode.
@@ -297,10 +332,10 @@ modes remain available for benchmarking and future panels. See
 
 Hermetic unit tests cover geometry, preprocessing, parsing, normalization,
 catalog validation, fixtures, the CLI, and Paddle result normalization.
-Real-screenshot tests assert that both fixtures produce exactly the
-expected display-name/count pairs and an `ok` status.
+Real-screenshot tests assert that the tracked fixtures produce exactly
+the expected display-name/count pairs and an `ok` status.
 
 Last verified locally:
 
--   Python 3.14, core environment: `81 passed, 2 skipped`.
--   Python 3.12, PaddleOCR environment: `83 passed`.
+-   Python 3.14, core environment: `83 passed, 3 skipped`.
+-   Python 3.12, PaddleOCR environment: `86 passed`.

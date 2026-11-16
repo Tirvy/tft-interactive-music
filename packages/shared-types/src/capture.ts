@@ -3,12 +3,21 @@ import { z } from 'zod'
 const unitFraction = z.number().min(0).max(1)
 
 /** Rectangle stored relative to the captured source dimensions. */
-export const normalizedRectSchema = z.object({
-  x: unitFraction,
-  y: unitFraction,
-  width: z.number().gt(0).max(1),
-  height: z.number().gt(0).max(1),
-})
+export const normalizedRectSchema = z
+  .object({
+    x: unitFraction,
+    y: unitFraction,
+    width: z.number().gt(0).max(1),
+    height: z.number().gt(0).max(1),
+  })
+  .refine((rect) => rect.x + rect.width <= 1 + 1e-9, {
+    message: 'x + width must be at most 1',
+    path: ['width'],
+  })
+  .refine((rect) => rect.y + rect.height <= 1 + 1e-9, {
+    message: 'y + height must be at most 1',
+    path: ['height'],
+  })
 
 export const captureSourceTypeSchema = z.enum(['screen', 'window'])
 

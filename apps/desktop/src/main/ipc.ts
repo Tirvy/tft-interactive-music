@@ -1,11 +1,15 @@
+import { existsSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { app, ipcMain, shell } from 'electron'
 import { z } from 'zod'
 import { IPC_CHANNELS, type AppInfo } from '@tft/shared-types/ipc'
+import { analyzeCaptureInputSchema } from '@tft/shared-types/recognition'
 import { appSettingsPatchSchema } from '@tft/shared-types/settings'
-import { resolveCaptureDirectory } from './capture/capture-paths'
+import { isPathInside, resolveCaptureDirectory } from './capture/capture-paths'
 import type { CaptureService } from './capture/capture-service'
 import { errorMessage } from './errors'
 import type { Logger } from './logger'
+import { resolveSetCatalogPath } from './recognition/catalog'
 import type { SettingsStore } from './settings-store'
 import type { WorkerSupervisor } from './worker/worker-supervisor'
 
@@ -66,6 +70,56 @@ export function registerIpcHandlers(dependencies: IpcDependencies): () => void {
         const filePath = capturePathSchema.parse(payload)
         dependencies.capture.revealCapture(filePath)
         return null
+      },
+    ],
+    [
+      IPC_CHANNELS.recognitionAnalyze,
+      async (payload) => {
+        const input = analyzeCaptureInputSchema.parse(payload)
+        const captureDirectory = resolveCaptureDirectory(
+          dependencies.settings.get().capture.saveDirectory,
+          dependencies.userDataPath,
+        )
+        const imagePath = resolve(input.filePath)
+
+        // The renderer may only analyze captures the app itself wrote.
+        if (!isPathInside(captureDirectory, imagePath)) {
+          throw new Error('Recognition is limited to files inside the capture directory.')
+        }
+        if (!existsSync(imagePath)) {
+          throw new Error(`Capture file not found: ${imagePath}`)
+        }
+
+        const setId = input.setId ?? undefined
+        const catalog = resolveSetCatalogPath(dependencies.recognitionDir, setId)
+        if (!catalog) {
+          throw new Error(`No recognition catalog is available for set ${setId ?? 'set-18'}.`)
+        }
+
+        if (dependencies.supervisor.getStatus().state !== 'running') {
+          dependencies.logger.info('recognition.worker-auto-start')
+        }
+        await dependencies.supervisor.ensureRunning()
+
+        dependencies.logger.info('recognition.analyze', {
+          imagePath,
+          setId: setId ?? 'set-18',
+          catalogPath: catalog.path,
+          catalogOrigin: catalog.origin,
+        })
+
+        return dependencies.supervisor.analyze({
+          imagePath,
+          captureTimestamp: input.captureTimestamp,
+          crop: input.crop,
+          catalogPath: catalog.path,
+          ...(setId ? { setId } : {}),
+          ...(input.preprocessMode ? { preprocessMode: input.preprocessMode } : {}),
+          ...(input.minConfidence !== undefined ? { minConfidence: input.minConfidence } : {}),
+          ...(input.minOcrConfidence !== undefined
+            ? { minOcrConfidence: input.minOcrConfidence }
+            : {}),
+        })
       },
     ],
     [

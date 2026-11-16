@@ -350,6 +350,18 @@ h2 {
   color: var(--success);
 }
 
+.pill.partial {
+  border-color: rgb(210 153 34 / 40%);
+  background: rgb(210 153 34 / 10%);
+  color: #e3b341;
+}
+
+.pill.error {
+  border-color: rgb(248 81 73 / 40%);
+  background: rgb(248 81 73 / 10%);
+  color: #f85149;
+}
+
 .button {
   display: inline-flex;
   align-items: center;
@@ -768,6 +780,102 @@ input[type='checkbox'] {
   flex: 1 1 280px;
 }
 
+.recognition-panel {
+  margin-top: 16px;
+}
+
+.crop-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.crop-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.crop-grid span {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.recognition-result {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.recognition-result > .details {
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.trait-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.trait-table th,
+.trait-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.trait-table th {
+  color: var(--text-muted);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.trait-table td strong {
+  display: block;
+}
+
+.trait-table td small {
+  display: block;
+}
+
+.unknown-rows {
+  padding: 12px;
+  border: 1px solid rgb(210 153 34 / 30%);
+  border-radius: 9px;
+  background: rgb(210 153 34 / 6%);
+}
+
+.unknown-rows ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--text-muted);
+}
+
+.diagnostics-block summary {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.diagnostics {
+  max-height: 260px;
+  margin: 8px 0 0;
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-input);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
 .spike-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -903,6 +1011,7 @@ input[type='checkbox'] {
   .spike-list,
   .settings-grid,
   .form-grid,
+  .crop-grid,
   .details {
     grid-template-columns: minmax(0, 1fr);
   }

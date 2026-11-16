@@ -1,4 +1,6 @@
 import type { CaptureSource, SavedCapture, SaveCaptureRequest } from './capture'
+import type { AnalyzeCaptureInput } from './recognition'
+import type { RecognitionResultMessage } from './protocol'
 import type { AppSettings, AppSettingsPatch } from './settings'
 import type { WorkerStatus } from './worker'
 
@@ -10,6 +12,7 @@ export const IPC_CHANNELS = {
   captureSelectSource: 'capture:select-source',
   captureSaveFrame: 'capture:save-frame',
   captureReveal: 'capture:reveal',
+  recognitionAnalyze: 'recognition:analyze',
 
   workerGetStatus: 'worker:get-status',
   workerStart: 'worker:start',
@@ -56,6 +59,9 @@ export interface TftApi {
     selectSource(sourceId: string): Promise<void>
     saveFrame(request: SaveCaptureRequest): Promise<SavedCapture>
     revealCapture(filePath: string): Promise<void>
+  }
+  recognition: {
+    analyze(input: AnalyzeCaptureInput): Promise<RecognitionResultMessage>
   }
   worker: {
     getStatus(): Promise<WorkerStatus>

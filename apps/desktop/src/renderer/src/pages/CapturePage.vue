@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import type { NormalizedRect } from '@tft/shared-types/capture'
 import { useCaptureStore } from '../stores/capture'
 
 type SourceFilter = 'all' | 'screen' | 'window'
@@ -8,6 +9,13 @@ const capture = useCaptureStore()
 const videoElement = ref<HTMLVideoElement | null>(null)
 const filter = ref<SourceFilter>('all')
 const query = ref('')
+
+const cropFields: Array<{ key: keyof NormalizedRect; label: string }> = [
+  { key: 'x', label: 'Left' },
+  { key: 'y', label: 'Top' },
+  { key: 'width', label: 'Width' },
+  { key: 'height', label: 'Height' },
+]
 
 const filteredSources = computed(() => {
   const search = query.value.trim().toLowerCase()
@@ -27,6 +35,26 @@ const displayDescription = computed(() => {
 
   return `${display.size.width}×${display.size.height} DIP · ${display.physicalSize.width}×${display.physicalSize.height} physical · ${display.scaleFactor}× scale`
 })
+
+const recognitionMeta = computed(() => {
+  const result = capture.lastRecognition
+  if (!result) {
+    return null
+  }
+
+  const diagnostics = result.diagnostics
+  const elapsed = diagnostics['elapsedMs']
+  const engine = diagnostics['ocrEngine']
+
+  return {
+    elapsed: typeof elapsed === 'number' ? `${Math.round(elapsed)} ms` : '—',
+    engine: typeof engine === 'string' ? engine : '—',
+  }
+})
+
+const diagnosticsJson = computed(() =>
+  capture.lastRecognition ? JSON.stringify(capture.lastRecognition.diagnostics, null, 2) : '',
+)
 
 onMounted(() => {
   void capture.loadSources()
@@ -84,6 +112,10 @@ async function measure(): Promise<void> {
   if (videoElement.value) {
     await capture.measureFrameRate(videoElement.value)
   }
+}
+
+async function analyze(): Promise<void> {
+  await capture.analyzeLastCapture()
 }
 
 function formatBytes(bytes: number): string {
@@ -273,6 +305,147 @@ function formatBytes(bytes: number): string {
         </p>
       </article>
     </div>
+
+    <article class="panel recognition-panel">
+      <div class="panel-heading">
+        <div>
+          <h2>Trait recognition</h2>
+          <p class="muted small">
+            Analyze the saved capture with the Python worker. Crop values are fractions of the
+            image, from 0 to 1.
+          </p>
+        </div>
+        <span
+          class="pill"
+          :class="{
+            ready: capture.lastRecognition?.status === 'ok',
+            partial: capture.lastRecognition?.status === 'partial',
+            error: capture.lastRecognition?.status === 'error',
+          }"
+        >
+          {{ capture.lastRecognition?.status ?? 'no result' }}
+        </span>
+      </div>
+
+      <div class="crop-grid">
+        <label v-for="field in cropFields" :key="field.key">
+          <span>{{ field.label }}</span>
+          <input
+            v-model.number="capture.crop[field.key]"
+            type="number"
+            min="0"
+            max="1"
+            step="0.01"
+          />
+        </label>
+      </div>
+
+      <div class="actions">
+        <button
+          type="button"
+          class="button primary"
+          :disabled="!capture.lastCapture || capture.analyzing || !capture.cropValid"
+          @click="analyze"
+        >
+          {{ capture.analyzing ? 'Analyzing…' : 'Analyze saved capture' }}
+        </button>
+        <span class="muted small">
+          {{
+            capture.lastCapture
+              ? `Target: ${capture.lastCapture.fileName}`
+              : 'Capture and save a PNG before analyzing.'
+          }}
+        </span>
+      </div>
+
+      <p v-if="!capture.cropValid" class="muted small">
+        The crop must stay inside the frame and be larger than zero.
+      </p>
+
+      <div v-if="capture.recognitionError" class="alert" role="alert">
+        <strong>Recognition failed</strong>
+        <span>{{ capture.recognitionError }}</span>
+      </div>
+
+      <div v-if="capture.lastRecognition" class="recognition-result">
+        <dl class="details compact">
+          <div>
+            <dt>Set</dt>
+            <dd>{{ capture.lastRecognition.setId }}</dd>
+          </div>
+          <div>
+            <dt>Captured at</dt>
+            <dd>{{ capture.lastRecognition.captureTimestamp }}</dd>
+          </div>
+          <div>
+            <dt>OCR engine</dt>
+            <dd>{{ recognitionMeta?.engine }}</dd>
+          </div>
+          <div>
+            <dt>Elapsed</dt>
+            <dd>{{ recognitionMeta?.elapsed }}</dd>
+          </div>
+          <div>
+            <dt>Traits</dt>
+            <dd>{{ capture.lastRecognition.traits.length }}</dd>
+          </div>
+          <div>
+            <dt>Unknown rows</dt>
+            <dd>{{ capture.lastRecognition.unknownRows.length }}</dd>
+          </div>
+        </dl>
+
+        <table v-if="capture.lastRecognition.traits.length > 0" class="trait-table">
+          <thead>
+            <tr>
+              <th scope="col">Trait</th>
+              <th scope="col">Count</th>
+              <th scope="col">Match</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="trait in capture.lastRecognition.traits" :key="trait.traitId">
+              <td>
+                <strong>{{ trait.displayName }}</strong>
+                <small v-if="trait.rawText !== trait.displayName" class="muted">
+                  {{ trait.rawText }}
+                </small>
+              </td>
+              <td>{{ trait.count }}</td>
+              <td class="muted small">
+                {{ trait.match.method }} · {{ trait.match.score.toFixed(2) }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p v-else class="muted small">No trait rows were recognized in this crop.</p>
+
+        <div v-if="capture.lastRecognition.unknownRows.length > 0" class="unknown-rows">
+          <strong class="small">Unmatched rows</strong>
+          <ul>
+            <li v-for="(row, index) in capture.lastRecognition.unknownRows" :key="index">
+              <code>{{ row.rawText || '(empty)' }}</code>
+              <span v-if="row.count !== null"> × {{ row.count }}</span>
+              <span class="muted small"> — {{ row.reason }}</span>
+              <span v-if="row.candidateDisplayName" class="muted small">
+                (closest: {{ row.candidateDisplayName }})
+              </span>
+            </li>
+          </ul>
+        </div>
+
+        <details class="diagnostics-block">
+          <summary>Diagnostics</summary>
+          <pre class="diagnostics">{{ diagnosticsJson }}</pre>
+        </details>
+      </div>
+
+      <p v-else class="muted small">
+        Results include matched traits, unmatched rows, and diagnostics from the same versioned
+        response the recognition CLI produces.
+      </p>
+    </article>
 
     <article class="panel">
       <div class="panel-heading">

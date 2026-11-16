@@ -15,6 +15,9 @@ const api: TftApi = {
     saveFrame: (request) => ipcRenderer.invoke(IPC_CHANNELS.captureSaveFrame, request),
     revealCapture: (filePath: string) => ipcRenderer.invoke(IPC_CHANNELS.captureReveal, filePath),
   },
+  recognition: {
+    analyze: (input) => ipcRenderer.invoke(IPC_CHANNELS.recognitionAnalyze, input),
+  },
   worker: {
     getStatus: () => ipcRenderer.invoke(IPC_CHANNELS.workerGetStatus),
     start: () => ipcRenderer.invoke(IPC_CHANNELS.workerStart),

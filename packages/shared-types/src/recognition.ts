@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { normalizedRectSchema } from './capture'
 
 export const recognitionStatusSchema = z.enum(['ok', 'partial', 'unavailable', 'error'])
 
@@ -47,3 +48,22 @@ export type TraitMatch = z.infer<typeof traitMatchSchema>
 export type TraitResult = z.infer<typeof traitResultSchema>
 export type UnknownRow = z.infer<typeof unknownRowSchema>
 export type RecognitionResult = z.infer<typeof recognitionResultSchema>
+
+/**
+ * Renderer-side request to analyze a saved capture.
+ *
+ * The renderer only names a file inside the capture directory. The main
+ * process resolves the catalog path and forwards a fully-qualified request
+ * to the worker, so the renderer never supplies arbitrary filesystem paths.
+ */
+export const analyzeCaptureInputSchema = z.object({
+  filePath: z.string().min(1),
+  captureTimestamp: z.string().min(1),
+  crop: normalizedRectSchema,
+  setId: z.string().min(1).optional(),
+  preprocessMode: z.string().min(1).optional(),
+  minConfidence: z.number().min(0).max(1).optional(),
+  minOcrConfidence: z.number().min(0).max(1).optional(),
+})
+
+export type AnalyzeCaptureInput = z.infer<typeof analyzeCaptureInputSchema>
